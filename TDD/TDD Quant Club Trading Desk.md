@@ -68,7 +68,7 @@ The system is composed of four main components: the **Central Go Server (The Des
 
 ## Diagram
 
-![Desk Architecture.png](TDD%20Quant%20Club%20Trading%20Desk%2027102634d41e804584b6ee37a1ee53ce/Desk_Architecture.png)
+![Desk Architecture.png](Desk_Architecture.png)
 
 ---
 
