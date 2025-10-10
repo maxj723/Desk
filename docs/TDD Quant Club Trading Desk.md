@@ -31,26 +31,28 @@ The system is composed of four main components: the **Central Go Server (The Des
     - **Description:** This is where the club member's code runs. To prevent security vulnerabilities from running untrusted code, each user-submitted `.py` file will be executed inside its own isolated **Docker container**.
     - **Interface:**
         - **Input (Market Data):** The strategy script will read market data line-by-line from **standard input (stdin)**. This keeps the script simple and focused on logic.
-        - **Output (Trade Signals):** To place a trade, the Python script will make a simple HTTP POST request to the Central Go Server's API endpoint (e.g., `http://go-server:8080/order`). We will provide a small Python helper library to make this easy.
+        - **Output (Trade Signals):** To place a trade, the Python script will make an HTTP POST request to the Central Go Server's API endpoint (e.g., `http://go-server:8080/order`) using **Protocol Buffers** for efficient serialization. We will provide a small Python helper library to make this easy.
     - **Example `strategy.py` logic:**
-    
+
     ```python
     import json
     import sys
-    import requests # or a custom helper library
-    
-    # Helper function to send an order to the Go server
-    def place_order(symbol, qty, side):
-        payload = {'symbol': symbol, 'qty': qty, 'side': side}
-        requests.post('http://go-server:8080/order', json=payload)
-    
+    from desk_client import place_order  # Custom helper library with protobuf support
+
     # Main loop to read data from the data streamer
     for line in sys.stdin:
-        market_data = json.loads(line) # e.g., {"symbol": "AAPL", "price": 150.25}
-    
+        market_data = json.loads(line)  # e.g., {"symbol": "AAPL", "price": 150.25}
+
         # --- Your trading logic goes here ---
         if market_data['price'] < 150.0:
-            place_order('AAPL', 10, 'buy')
+            # place_order handles protobuf serialization internally
+            place_order(
+                symbol='AAPL',
+                qty='10',
+                side='buy',
+                order_type='market',
+                time_in_force='day'
+            )
     ```
     
 - **Data Streamer**
@@ -60,11 +62,12 @@ The system is composed of four main components: the **Central Go Server (The Des
         - Receives data from Alpaca.
         - Forwards the relevant data to the appropriate Python strategy container via its **standard input (stdin)**. This decouples the data feed from the main execution server.
 - **Database**
-    - **Description:** A simple database to persist important information. **SQLite** is a perfect choice to start with due to its simplicity (it's just a file, no separate server needed).
+    - **Description:** A simple database to persist important information. **SQLite** is used due to its simplicity (it's just a file, no separate server needed).
+    - **Implementation:** The database is initialized automatically on server startup at the path specified by `DB_PATH` environment variable (defaults to `./trading_desk.db`).
     - **Schema:**
-        - `strategies`: Stores information about each script, like its file path and the user who owns it.
-        - `trades`: A log of every trade placed, including symbol, quantity, price, timestamp, and which strategy initiated it.
-        - `positions`: A table to keep track of current holdings for each strategy.
+        - `strategies`: Stores information about each script, including user ID, strategy name, file path, created/updated timestamps, and status (active/paused/stopped).
+        - `trades`: A comprehensive log of every trade placed, including user ID, strategy ID, order ID, symbol, quantity, side, order type, prices, filled quantities, order status, timestamps, and error messages.
+        - `positions`: A table to keep track of current holdings for each strategy with average entry price, current price, market value, and unrealized P&L.
 
 ## Diagram
 
@@ -79,9 +82,9 @@ The workflow from a trading decision to execution is as follows:
 1. **Deployment:** A club member uploads their `strategy.py` file. The Strategy Manager launches this script inside a new, isolated Docker container.
 2. **Data Streaming:** The Data Streamer connects to Alpaca's data feed. As it receives price updates for a stock (e.g., AAPL), it pipes this data as a JSON string into the standard input of every container running a strategy that needs AAPL data.
 3. **Signal Generation:** Inside its container, the Python script reads the data from stdin, processes it, and decides to execute a trade.
-4. **Internal API Call:** The Python script makes an HTTP POST request to the Central Go Server's `/order` endpoint over the internal Docker network. The request body contains the trade details (e.g., `{"symbol": "AAPL", "qty": 10, "side": "buy"}`).
-5. **Secure Execution:** The Go server receives the request. It validates the payload and then uses its securely stored Alpaca API keys to place the paper trade via the Alpaca Go SDK.
-6. **Logging:** The result of the trade (accepted, rejected, filled) is received from Alpaca and logged into the SQLite database.
+4. **Internal API Call:** The Python script makes an HTTP POST request to the Central Go Server's `/order` endpoint over the internal Docker network. The request body is **Protocol Buffer encoded** containing the trade details (symbol, quantity, side, order type, time in force, and optional limit/stop prices). The script includes an `X-User-ID` header to identify the user.
+5. **Secure Execution:** The Go server receives the protobuf-encoded request, deserializes it, and validates the payload. It then uses its securely stored Alpaca API keys to place the paper trade via the Alpaca Go SDK.
+6. **Logging:** The result of the trade (accepted, rejected, filled) is received from Alpaca and immediately logged into the SQLite database with complete details including user ID, order ID, status, timestamps, and any error messages. The response is sent back to the Python script as a protobuf-encoded `OrderResponse`.
 
 ### **Security Considerations**
 
@@ -99,5 +102,6 @@ The workflow from a trading decision to execution is as follows:
 | **Trading Logic** | Python 3 | The standard for data science and quantitative finance. |
 | **Brokerage & Data** | Alpaca API | Offers a free, robust paper trading and data API. |
 | **Code Isolation** | Docker | The industry standard for secure application sandboxing. |
-| **Internal Communication** | REST API (JSON/HTTP) | Simple, stateless, and easy to implement/debug. |
+| **Internal Communication** | REST API (Protocol Buffers/HTTP) | Efficient binary serialization with strong typing and versioning. |
 | **Database** | SQLite | Extremely simple to set up and perfect for this scale. |
+| **Serialization** | Protocol Buffers | Type-safe, efficient, and language-agnostic message format. |
