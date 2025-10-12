@@ -1,0 +1,10 @@
+{
+  "user_id": "alice",
+  "name": "Alice's Momentum Strategy",
+  "description": "Buys AAPL when price drops below $145",
+  "version": "1.0.0",
+  "env": {
+    "STRATEGY_NAME": "alice_momentum",
+    "BUY_THRESHOLD": "145.0"
+  }
+}

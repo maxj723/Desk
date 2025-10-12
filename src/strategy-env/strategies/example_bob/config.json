@@ -1,0 +1,11 @@
+{
+  "user_id": "bob",
+  "name": "Bob's Mean Reversion Strategy",
+  "description": "Buys when price drops below moving average",
+  "version": "1.0.0",
+  "env": {
+    "STRATEGY_NAME": "bob_mean_reversion",
+    "LOOKBACK_PERIOD": "10",
+    "REVERSION_THRESHOLD": "0.98"
+  }
+}
